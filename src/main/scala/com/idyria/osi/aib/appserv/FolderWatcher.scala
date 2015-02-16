@@ -17,20 +17,26 @@ import java.io.FileReader
 import scala.io.Source
 import com.idyria.osi.aib.core.compiler.FileCompileError
 import java.util.concurrent.Semaphore
+import com.idyria.osi.tea.logging.TLogSource
 
-
-
-class FolderWatcher(var location: File) extends ThreadLanguage {
+class FolderWatcher(var location: File) extends ThreadLanguage with TLogSource {
 
   // Location
   //-------------------
+
+  // Source location
   var locationPath = FileSystems.getDefault().getPath(location.getAbsolutePath)
-  var compilerOutputPath = locationPath.resolve("target")
+
+  // Main output path
+  var outputPath = locationPath.resolve(List("aib-target").mkString(File.separator))
+
+  //var buildOutputPath = locationPath.resolve(List("aib-target").mkString(File.separator))
+  var compilerOutputPath = outputPath.resolve(List("classes").mkString(File.separator))
 
   // File patterns
   //-----------------
   var ignorePatterns = List(""".*\.ignore\..*""".r)
-  var sourcePatterns = List(""".*\.scala""".r)
+  var sourcePatterns = List(""".*\.scala$""".r)
 
   // Watched Directories
   //------------------
@@ -40,76 +46,89 @@ class FolderWatcher(var location: File) extends ThreadLanguage {
   //--------------------
   var compiler = new EmbeddedCompiler
 
-  
   // set output
   var compilerOutput = compilerOutputPath.toFile()
   compilerOutput.mkdirs()
   compiler.settings2.outputDirs.setSingleOutput(compilerOutput.getAbsolutePath)
 
+  /**
+   * Change the global output path
+   */
+  def changeOutputPath(file: File) = {
+
+    outputPath = FileSystems.getDefault().getPath(file.getAbsolutePath)
+    compilerOutputPath = outputPath.resolve(List("classes").mkString(File.separator))
+    compilerOutput = compilerOutputPath.toFile()
+    compilerOutput.mkdirs()
+    compiler.settings2.outputDirs.setSingleOutput(compilerOutput.getAbsolutePath)
+
+  }
+
   class CompileBatch(var files: List[File]) {
-  
-    def this(f:File) = this(List(f))
-    
+
+    def this(f: File) = this(List(f))
+
     //-- Errors
     var compileErrors = scala.collection.mutable.MutableList[FileCompileError]()
-    
+
     def compile = {
-      
+
       compileErrors.clear()
-      
+
       compiler.compileFiles(files) match {
-        case Some(error) => 
-          
+        case Some(error) =>
+
           compileErrors += error
           Some(error)
-          
-        case None => 
-          
+
+        case None =>
+
           // Clear errors
           compileErrors.clear()
           //compileErrors = compileErrors.filterNot { e => e.file.getAbsolutePath.equals(f.getAbsolutePath) }
           None
-          
+
       }
     }
-    
+
     def hasErrors = !compileErrors.isEmpty
-    
+
   }
-  
+
   var pendingBatches = scala.collection.mutable.MutableList[CompileBatch]()
-  
+
   //-- Updated signal
   var updated = new Semaphore(0)
-  
-  // Compiler method with handlers
+
+  // Source folders
   //-------------------------
+  def addSourceFolder(file: File) = {
 
-  /**
-   * Kickoff
-   */
-  def start = {
+    // to path
+    var sourcePath = FileSystems.getDefault().getPath(file.getAbsolutePath)
 
-    // base folder is in watcher
-    locationPath.register(this.watcher, StandardWatchEventKinds.ENTRY_CREATE)
-
-    // Walk tree
-    //---------------
+    // register
+    //-------------
+    sourcePath.register(this.watcher, StandardWatchEventKinds.ENTRY_CREATE)
     var initCompile = List[File]()
-    var waltkStream = Files.walk(locationPath)
+    var waltkStream = Files.walk(sourcePath)
     var it = waltkStream.iterator()
     while (it.hasNext()) {
       var path = it.next()
 
       var relativePath = locationPath.relativize(path)
-      println(s"path : $relativePath")
+      logFine[FolderWatcher](s"path : $relativePath // ${outputPath}")
 
       path match {
 
+        //-- Source File
+        case f if (sourcePatterns.find(r => r.findFirstIn(f.toFile.getAbsolutePath) != None) != None) =>
+          initCompile = initCompile :+ f.toFile
+
         //-- Ignores  : compiler output, ignore
-        case f if (f.startsWith(compilerOutputPath)) => //println(s"Ignore: $relativePath")
+        //case f if (f.startsWith(buildOutputPath)) =>
+        case f if (f.startsWith(outputPath)) => //logFine[FolderWatcher](s"Ignore: $relativePath")
         case f if (ignorePatterns.find(r => r.findFirstIn(f.toFile.getAbsolutePath) != None) != None) =>
-        
 
         //-- Register Folder
         case f if (f.toFile.isDirectory()) =>
@@ -117,17 +136,13 @@ class FolderWatcher(var location: File) extends ThreadLanguage {
           var key = path.register(this.watcher, StandardWatchEventKinds.ENTRY_CREATE, StandardWatchEventKinds.ENTRY_MODIFY)
           watchedDirectories = watchedDirectories :+ (path, key)
 
-        //-- Source File
-        case f if (sourcePatterns.find(r => r.findFirstIn(f.toFile.getAbsolutePath) != None) != None) =>
-          initCompile = initCompile :+ f.toFile
-
         //-- Other  : Copy to output
         case f =>
-          
+
           // Get relative path from base 
           var relativePath = this.locationPath.relativize(f)
           var outputPath = this.compilerOutputPath.resolve(relativePath)
-          println(s"Copying to: ${this.compilerOutputPath.resolve(relativePath)}")
+          logFine[FolderWatcher](s"Copying to: ${this.compilerOutputPath.resolve(relativePath)}")
           outputPath.toFile().getParentFile.mkdirs()
           Files.copy(f, outputPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES)
 
@@ -137,13 +152,33 @@ class FolderWatcher(var location: File) extends ThreadLanguage {
 
     // Pre-Compilation
     //--------------------
-    println(s"Init compile with: $initCompile")
+    logFine[FolderWatcher](s"CP out: $compilerOutputPath")
+    logFine[FolderWatcher]("Init compile CP: " + compiler.settings2.classpathURLs)
+    logFine[FolderWatcher](s"Init compile with: $initCompile")
     var batch = new CompileBatch(initCompile)
     pendingBatches += batch
     compileBatches
+  }
+
+  // Compiler method with handlers
+  //-------------------------
+
+  /**
+   * Kickoff
+   */
+  def start = {
+
+    // base folder is in watcher
+    //locationPath.register(this.watcher, StandardWatchEventKinds.ENTRY_CREATE)
+
+    compilerOutputPath.toFile().mkdirs()
+
+    // Walk tree
+    //---------------
+    addSourceFolder(locationPath.toFile())
     /*
-    /*println(s"Absolute file: ${initCompile(0).getAbsoluteFile.isFile()}")
-    println(s"Absolute file: ${AbstractFile.getFile(initCompile(0).getAbsoluteFile)}")*/
+    /*logFine[FolderWatcher](s"Absolute file: ${initCompile(0).getAbsoluteFile.isFile()}")
+    logFine[FolderWatcher](s"Absolute file: ${AbstractFile.getFile(initCompile(0).getAbsoluteFile)}")*/
     compiler.imain.compileSourcesSeq(initCompile.map(f => new BatchSourceFile(AbstractFile.getFile(f.getAbsoluteFile))).toSeq) match {
       case true =>
       case false =>
@@ -154,25 +189,23 @@ class FolderWatcher(var location: File) extends ThreadLanguage {
     watcherThread.start()
 
   }
-  
-  
+
   /**
    * Compile source file, and try to return some errors
    */
-  def compileSource(f:File) : Unit = {
-      
+  def compileSource(f: File): Unit = {
+
     //-- look for a pending batch with this file
     pendingBatches.find { batch => batch.files.contains(f) } match {
-      case Some(batch) => 
+      case Some(batch) =>
         batch.compile
         compileBatches
-      case None => 
+      case None =>
         pendingBatches += new CompileBatch(f)
         compileBatches
     }
-       
-     
-       /*
+
+    /*
       compiler.compileFile(f) match {
         case Some(error) => 
           
@@ -186,47 +219,46 @@ class FolderWatcher(var location: File) extends ThreadLanguage {
           None
           
       }*/
-     
-    
+
   }
-  
+
   /**
-   * A 
+   * A
    */
   def compileBatches = {
-    
-    println(s"compile batches")
+
+    logFine[FolderWatcher](s"compile batches")
     /**
      * Compile the batches
      */
     pendingBatches.toList.foreach {
-      batch => 
-       
+      batch =>
+
         batch.compile
-        
+
         // Clean old batches, try to compile errors ones 
         batch.hasErrors match {
-          case true => 
+          case true =>
           case false => pendingBatches = pendingBatches.filterNot(_ == batch)
         }
-        
+
     }
-    
+
     // Infos
     pendingBatches.foreach {
-      batch => 
-        println(s"**** Batch: "+batch.files)
+      batch =>
+        logFine[FolderWatcher](s"**** Batch: " + batch.files)
         batch.compileErrors.foreach {
-          err => println(s"****** -> error: ${err.file} , ${err.message}")
+          err => logFine[FolderWatcher](s"****** -> error: ${err.file} , ${err.message}")
         }
-        
+
     }
-    
+
     // If no batches anymore, then signal updated 
-    if (pendingBatches.length==0) {
+    if (pendingBatches.length == 0) {
       updated.release(updated.getQueueLength)
     }
-    
+
   }
 
   // Watcher Thread
@@ -244,57 +276,62 @@ class FolderWatcher(var location: File) extends ThreadLanguage {
         // Get associated directory
         var directory = watchedDirectories.collectFirst { case (dpath, dkey) if (dkey == key) => dpath }.get
 
-        // Loop over events
-        key.pollEvents().filter { ev => ev.kind() != StandardWatchEventKinds.OVERFLOW }.foreach {
+        try {
 
-          //-- New Folder
-          case event: WatchEvent[Path] if (event.kind() == StandardWatchEventKinds.ENTRY_CREATE && directory.resolve(event.context()).toFile().isDirectory()) =>
+          // Loop over events
+          key.pollEvents().filter { ev => ev.kind() != StandardWatchEventKinds.OVERFLOW }.foreach {
 
-            var filePath = directory.resolve(event.context())
-            println(s"New Folder: $filePath")
+            //-- New Folder
+            case event: WatchEvent[Path] if (event.kind() == StandardWatchEventKinds.ENTRY_CREATE && directory.resolve(event.context()).toFile().isDirectory()) =>
 
-            var newkey = filePath.register(this.watcher, StandardWatchEventKinds.ENTRY_CREATE, StandardWatchEventKinds.ENTRY_MODIFY)
-            watchedDirectories = watchedDirectories :+ (filePath, newkey)
+              var filePath = directory.resolve(event.context())
+              logFine[FolderWatcher](s"New Folder: $filePath")
 
-          //-- New/Changed File
-          case event: WatchEvent[Path] =>
+              var newkey = filePath.register(this.watcher, StandardWatchEventKinds.ENTRY_CREATE, StandardWatchEventKinds.ENTRY_MODIFY)
+              watchedDirectories = watchedDirectories :+ (filePath, newkey)
 
-            //-- Get File 
+            //-- New/Changed File
+            case event: WatchEvent[Path] =>
 
-            var filePath = directory.resolve(event.context())
-            var file = filePath.toFile()
-            println(s"Added/Changed: $file // ${event.context().getParent}")
+              //-- Get File 
 
-            file match {
+              var filePath = directory.resolve(event.context())
+              var file = filePath.toFile()
+              logFine[FolderWatcher](s"Added/Changed: $file // ${event.context().getParent}")
 
-              //-- Ignored files
-              case f if (ignorePatterns.find(r => r.findFirstIn(f.getAbsolutePath) != None) != None) =>
+              file match {
 
-              //-- Source file
-              case f if (sourcePatterns.find(r => r.findFirstIn(f.getAbsolutePath) != None) != None) =>
-                
-                println(s"Compiling")
-                compileSource(f)
+                //-- Source file
+                case f if (sourcePatterns.find(r => r.findFirstIn(f.getAbsolutePath) != None) != None) =>
 
-              //-- Other files, copy to output
-              case f =>
+                  logFine[FolderWatcher](s"Compiling")
+                  compileSource(f)
 
-                // Get relative path from base 
-                var relativePath = this.locationPath.relativize(filePath)
-                var outputPath = this.compilerOutputPath.resolve(relativePath)
-                // println(s"Copying to: ${this.compilerOutputPath.resolve(relativePath)}")
-                outputPath.toFile().getParentFile.mkdirs()
-                Files.copy(filePath, outputPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES)
+                //-- Ignored files
+                //case f if (filePath.startsWith(buildOutputPath)) =>
+                case f if (filePath.startsWith(outputPath)) =>
+                case f if (ignorePatterns.find(r => r.findFirstIn(f.getAbsolutePath) != None) != None) =>
 
-            }
+                //-- Other files, copy to output
+                case f =>
 
-          case _ =>
+                  // Get relative path from base 
+                  var relativePath = this.locationPath.relativize(filePath)
+                  var outputPath = this.compilerOutputPath.resolve(relativePath)
+                  // logFine[FolderWatcher](s"Copying to: ${this.compilerOutputPath.resolve(relativePath)}")
+                  outputPath.toFile().getParentFile.mkdirs()
+                  Files.copy(filePath, outputPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES)
 
+              }
+
+            case _ =>
+
+          }
+
+        } finally {
+          //-- invalid key
+          key.reset()
         }
-
-        //-- invalid key
-
-        key.reset()
 
       } catch {
         case e: InterruptedException => stop = true

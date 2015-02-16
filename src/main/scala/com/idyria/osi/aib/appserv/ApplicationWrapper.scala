@@ -21,16 +21,16 @@ class ApplicationWrapper(var location: File) extends TLogSource with ThreadLangu
   var runtimeCompiler = new FolderWatcher(location)
 
   //-- Create Folder watcher
-  var compiler = new EmbeddedCompiler
+  //var compiler = new EmbeddedCompiler
 
   // set output
-  var compilerOutput = new File(location, "target/")
-  compilerOutput.mkdirs()
-  compiler.settings2.outputDirs.setSingleOutput(compilerOutput.getAbsolutePath)
+  //var compilerOutput = new File(location, "target"+File.separator+"classes")
+  //compilerOutput.mkdirs()
+  //compiler.settings2.outputDirs.setSingleOutput(compilerOutput.getAbsolutePath)
 
   // Internal Classloader
   //----------------------------
-  var classloader = URLClassLoader.newInstance(Array(compilerOutput.toURI().toURL()), Thread.currentThread().getContextClassLoader)
+  var classloader = URLClassLoader.newInstance(Array(runtimeCompiler.compilerOutput.toURI().toURL()), Thread.currentThread().getContextClassLoader)
 
   // Applications 
   //-------------------
@@ -46,6 +46,15 @@ class ApplicationWrapper(var location: File) extends TLogSource with ThreadLangu
 
     // Launch folder watcher compiler
     //--------------
+    
+    // Add new paths to compiler
+    var generatedSources = new File(runtimeCompiler.compilerOutput.getParentFile,"generated-sources"+File.separator+"scala")
+    println(s"Testing generatedSources: "+generatedSources.getAbsolutePath)
+    generatedSources.exists match {
+      case true =>
+        runtimeCompiler.addSourceFolder(generatedSources)
+      case _ => 
+    }
     runtimeCompiler.start
 
     // Prepare gradle
@@ -79,9 +88,10 @@ $classContent
 
         // Find Type 
         //---------------------
-        var p = """(?s)package\s+([\w\.]+).*(class|object) ([\w_-]+)\s+.+""".r
+        var p = """(?s)(?:package\s+([\w\.]+).*)?(class|object)\s+([\w_-]+)\s+extends.+""".r
         var rType = p.findFirstMatchIn(classContent) match {
-          case Some(m) => Some(m.group(1) + "." + m.group(3), m.group(2))
+          case Some(m) if (m.group(1)!=null) => Some(m.group(1) + "." + m.group(3), m.group(2))
+          case Some(m)  => Some( m.group(3), m.group(2))
           case None =>
             println(s"Could not find Type name")
             None
@@ -123,14 +133,14 @@ $classContent
                 println(s"-> Object")
 
                 // Get value
-                compiler.imain.valueOfTerm(typeName) match {
+               /* compiler.imain.valueOfTerm(typeName) match {
                   case None =>
 
                     throw new RuntimeException("Nothing compiled: " + compiler.interpreterOutput.getBuffer().toString())
 
                   case Some(wwwview) =>
                   //wwwview.asInstanceOf[WWWView]
-                }
+                }*/
               //var objectApp = compiler.imain.eval(typeName)
               /*compiler.imain.definedTypes.foreach {
                   x => println(s"Term: $x")
@@ -157,6 +167,17 @@ $classContent
   //------------------
   def start = {
 
+    // Add new paths to compiler
+    //----------------
+    var generatedSources = new File(location,"target"+File.separator+"generated-sources")
+    println(s"Testing generatedSources: "+generatedSources.getAbsolutePath)
+    generatedSources.exists match {
+      case true =>
+        runtimeCompiler.addSourceFolder(generatedSources)
+      case _ => 
+    }
+    
+    
     // Recreate Classloader
     // - Get AIB Bus for current classloader
     // - Recreate classloader and transfer bus
@@ -165,7 +186,7 @@ $classContent
     // Re-Create classloader 
     this.classloader = null
     //sys.runtime.gc
-    this.classloader = URLClassLoader.newInstance(Array(compilerOutput.toURI().toURL()), Thread.currentThread().getContextClassLoader)
+    this.classloader = URLClassLoader.newInstance(Array(runtimeCompiler.compilerOutput.toURI().toURL()), Thread.currentThread().getContextClassLoader)
 
     // Re-Create applications
     var normalClassloader = Thread.currentThread().getContextClassLoader
@@ -174,16 +195,18 @@ $classContent
         app =>
 
           //-- Prepare application classloader
-          var appClassloader = URLClassLoader.newInstance(Array[URL](), this.classloader)
+         // var appClassloader = URLClassLoader.newInstance(Array[URL](), this.classloader)
+          var appClassloader =  this.classloader
 
           //-- Transfer previous bus to new classloader 
-          aib.transferBus(app.classloader,appClassloader)
+          //aib.transferBus(app.classloader,appClassloader)
           
           //-- Recreate class with new classloader
           Thread.currentThread().setContextClassLoader(appClassloader)
           var newapp = this.classloader.loadClass(app.getClass.getCanonicalName).newInstance().asInstanceOf[AIBApplication]
           newapp.classloader = appClassloader
           newapp.location = this.location
+          newapp.wrapper = this
           newapp
       }
     } finally {

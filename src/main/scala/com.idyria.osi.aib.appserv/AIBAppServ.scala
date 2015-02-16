@@ -28,11 +28,15 @@ class AIBAppServ extends GridBuilder {
     println(s"Welcome to AIB App serv")
 
     //-- Vars 
-    var location = new File("") // Location
+    var location = new File("").getAbsoluteFile.getCanonicalFile // Location
     var configFile = new File(location, "appserv.xml")
 
     // Loading config file
     //---------------------- 
+
+    // Defaults:
+    applicationConfig.gui = false
+
     configFile.exists() match {
       case true =>
         applicationConfig.appendBuffer(StAXIOBuffer(configFile.toURI.toURL()))
@@ -43,89 +47,102 @@ class AIBAppServ extends GridBuilder {
     // Load first applications
     //----------------
     updateApplicationWrappers
-    
+
+    // Init/Start app wrappers 
+    //---------------------
+    this.applicationWrappers.foreach { app => app.init; app.start }
+
     // Starting GUI
     //-----------------------
     println(s"Starting in GUI Mode")
 
     //sys.exit()
+    if (applicationConfig.gui.data) {
 
-    JavaFXRun.onJavaFX {
+      JavaFXRun.onJavaFX {
 
-      frame {
-        f =>
-          f title ("AIB Applications")
-          //f.size(1024, 768)
-          f.size(100, 100)
+        frame {
+          f =>
+            f title ("AIB Applications")
+            //f.size(1024, 768)
+            f.size(100, 100)
 
-          f <= grid {
+            f <= grid {
 
-            // Top: Global Menu
-            //--------------
-            "GlobalMenu" row subgrid {
-
-            }
-
-            // Main View: Left list, Right: UI panels
-            "Main View" row subgrid {
-
-              var leftMenu = panel {
-                p =>
-                  p layout = vbox
+              // Top: Global Menu
+              //--------------
+              "GlobalMenu" row subgrid {
 
               }
 
-              var right = subgrid {
+              // Main View: Left list, Right: UI panels
+              "Main View" row subgrid {
 
-                // Labels
-                "-" row { label("location") | (label("actions") using (expandWidth, spread)) }
+                var leftMenu = panel {
+                  p =>
+                    p layout = vbox
 
-                // Add for each application
-               /* applicationConfig.applications.foreach {
+                }
+
+                var right = subgrid {
+
+                  // Labels
+                  "-" row { label("location") | (label("actions") using (expandWidth, spread)) }
+
+                  this.applicationWrappers.foreach {
+                    appWrapper =>
+
+                      //-- Prepare UI elements
+                      var initButton = button("Init") {
+                        b =>
+                          b.onClickFork {
+                            appWrapper.init
+                          }
+                      }
+                      var startButton = button("Start")
+                      startButton.onClickFork {
+                        appWrapper.start
+                      }
+                      var stopButton = button("Stop")
+                      stopButton.onClickFork {
+                        appWrapper.stop
+                      }
+                      var restartButton = button("Restart")
+                      restartButton.onClickFork {
+                        appWrapper.restart
+                      }
+
+                      //-- UI 
+                      "-" row {
+                        label(appWrapper.location.getPath) | initButton | startButton | restartButton | stopButton
+                      }
+
+                  }
+
+                  // Add for each application
+                  /* applicationConfig.applications.foreach {
                   appLocation =>
 
                     //-- Prepare application
                     var appWrapper = new ApplicationWrapper(new File(appLocation))
 
-                    //-- Prepare UI elements
-                    var initButton = button("Init") {
-                      b =>
-                        b.onClickFork {
-                          appWrapper.init
-                        }
-                    }
-                    var startButton = button("Start")
-                    startButton.onClickFork {
-                      appWrapper.start
-                    }
-                    var stopButton = button("Stop")
-                    stopButton.onClickFork {
-                      appWrapper.stop
-                    }
-                    var restartButton = button("Restart")
-                    restartButton.onClickFork {
-                      appWrapper.restart
-                    }
-
-                    //-- UI 
-                    "-" row {
-                      label(appWrapper.location.getPath) | initButton | startButton | restartButton | stopButton
-                    }
+                    
 
                 }*/
 
+                }
+                "-" row {
+                  right
+                }
               }
-              "-" row {
-                right
-              }
+
             }
 
-          }
+            f.show
 
-          f.show
+        }
 
       }
-
     }
 
   }
@@ -134,8 +151,8 @@ class AIBAppServ extends GridBuilder {
    * Go through config, and find application wrappers
    */
   def updateApplicationWrappers = {
-
-    applicationConfig.applications.map(new File(_)).foreach {
+ 
+    applicationConfig.applications.map(new File(_).getAbsoluteFile.getCanonicalFile).foreach {
 
       //-- Invalid paths 
       case f if (!f.exists()) =>
@@ -148,10 +165,10 @@ class AIBAppServ extends GridBuilder {
         logWarn(s"Application path: $f is not a directory")
 
       // -- Ok, but already in list 
-      case f if(this.applicationWrappers.find{w => w.location.equals(f)}!=None) => 
-        
+      case f if (this.applicationWrappers.find { w => w.location.equals(f) } != None) =>
+
       //-- Ok and not in list
-      case f => 
+      case f =>
         this.applicationWrappers = this.applicationWrappers :+ new ApplicationWrapper(f)
 
     }

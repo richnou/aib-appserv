@@ -48,6 +48,8 @@ trait AIBApplication {
    */
   var stopSignal = new Semaphore(0)
 
+  var wrapper : ApplicationWrapper = null
+  
   /**
    * An aib bus for the application
    * @warning Only set during application startup, with the correct classloader
@@ -76,10 +78,13 @@ trait AIBApplication {
    */
   def appInit() = {
     
+    // DO this first!
+    doInit
+    
     // Signal 
     aib ! "init"
     
-    doInit
+    
     //initClosures.foreach{cl =>  cl()}
   }
 
@@ -99,13 +104,16 @@ trait AIBApplication {
    */
   def appStart() = {
     
-    // Signal 
-    aib ! "start"
+   
 
     
     // Call app start 
     //--------------------
     doStart
+    
+     // Signal 
+    aib ! "start"
+    
     //startClosures.foreach{cl =>  cl()}
   }
 
@@ -127,12 +135,14 @@ trait AIBApplication {
    */
   def appStop = {
 
-    // Signal 
-    aib ! "stop"
-
     // call do Stop 
     doStop
 
+    
+    // Signal 
+    aib ! "stop"
+
+    
   }
 
   def doInit

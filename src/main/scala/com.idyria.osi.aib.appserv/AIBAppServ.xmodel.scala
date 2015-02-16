@@ -15,6 +15,8 @@ object AIBAppServModel extends ModelBuilder {
   
     "Config" is {
       
+      "Gui" ofType "boolean"
+      
       "Application" multiple "String"
        
     }
