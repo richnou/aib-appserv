@@ -17,8 +17,22 @@ object AIBAppServModel extends ModelBuilder {
       
       "Gui" ofType "boolean"
       
-      "Application" multiple "String"
+      "Application" multiple  {
+          "Path" ofType "string"
+          "Artifact" is {
+              attribute("id")
+              "ApplicationClass" ofType "string"
+              
+              //-- Optional: Detailed?
+          }
+      }
        
+    }
+    
+    "ApplicationConfig" is {
+        
+        "AutoRestart" ofType "boolean" default "false"
+        
     }
   
 }
