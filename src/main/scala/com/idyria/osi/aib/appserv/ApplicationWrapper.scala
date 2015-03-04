@@ -112,11 +112,11 @@ class ApplicationWrapper(var location: File) extends TLogSource with ThreadLangu
                 var project = Project(f.toURI().toURL())
                 
                 //-- Resolve dependencies for classpath
-                this.artifactsResolver.resolveDependencies(project.groupId, project.artifactId, project.version,true)
+                //this.artifactsResolver.resolveDependencies(project.groupId, project.artifactId, project.version,false)
                 /*var cp = this.artifactsResolver.resolveDependenciesToClasspath(project.groupId, project.artifactId, project.version,true)
 
                 cp*/
-                
+                List[ArtifactResult]()
             case _ =>
                 List[ArtifactResult]()
                 //URLClassLoader.newInstance(Array(runtimeCompiler.compilerOutput.toURI().toURL()), this.classloader.getParent)
@@ -220,7 +220,7 @@ class ApplicationWrapper(var location: File) extends TLogSource with ThreadLangu
                     logFine(s"*** Found Class: $relativePath")
 
                     // Load 
-                    var cl = this.classloader.loadClass(relativePath.toString.replace("/", ".").replace(".class", ""))
+                    var cl = this.classloader.loadClass(relativePath.toString.replace("\\","/").replace("/", ".").replace(".class", ""))
                     if (baseClass.isAssignableFrom(cl)) {
                         res = res :+ (fullPath.toFile(), cl.asInstanceOf[Class[T]])
                     }

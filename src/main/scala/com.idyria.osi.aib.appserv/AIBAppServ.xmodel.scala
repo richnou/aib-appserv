@@ -17,6 +17,8 @@ object AIBAppServModel extends ModelBuilder {
       
       "Gui" ofType "boolean"
       
+      "Workspace" ofType "string"
+      
       "Application" multiple  {
           "Path" ofType "string"
           "Artifact" is {

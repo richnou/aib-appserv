@@ -71,9 +71,11 @@ class FolderWatcher(var location: File) extends ThreadLanguage with TLogSource {
         this.watcherThread.setContextClassLoader(cl)
         var old = Thread.currentThread().getContextClassLoader
         Thread.currentThread().setContextClassLoader(cl)
-        this.compiler = new EmbeddedCompiler
+        this.compiler = new EmbeddedCompiler(cl)
         this.compiler.settings2.outputDirs.setSingleOutput(compilerOutput.getAbsolutePath)
         Thread.currentThread().setContextClassLoader(old)
+        
+        this.pendingBatches.clear()
         
     }
 
@@ -278,6 +280,14 @@ class FolderWatcher(var location: File) extends ThreadLanguage with TLogSource {
         } else {
             cleanStatus.set(false)
             println(s"Compiler clean status: " + cleanStatus.getNextBuffer)
+            
+            println(s"Compilign failed, but with Classloader:")
+            println( this.compiler.settings2.bootclasspath)
+            this.compiler.bootclasspath.foreach {
+              u => println(s"---> "+u.getFile)
+            }
+            //this.compiler.
+            
         }
 
     }

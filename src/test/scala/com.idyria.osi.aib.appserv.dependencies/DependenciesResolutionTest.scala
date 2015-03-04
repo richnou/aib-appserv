@@ -28,12 +28,20 @@ class DependenciesResolutionTest extends FunSuite {
         }
 
     }
+    
+  
 
     test("Eclispe workspace resolution") {
 
-        var eclipseWorkspaceReader = new EclipseWorkspaceReader(new File("/home/rleys/eclipse-workspaces/test-optimized/"))
+        var eclipseWorkspaceReader = new EclipseWorkspaceReader(new File("src/test/resources/eclipse-workspace"))
         var resolver = new AetherResolver
         resolver.session.setWorkspaceReader(eclipseWorkspaceReader)
+        
+        //-- Check projects locations
+        assertResult(2)(eclipseWorkspaceReader.projectsLocations.size)
+        
+        /*
+        
 
         //TLog.setLevel(classOf[AetherResolver], TLog.Level.FULL)
         //TLog.setLevel(classOf[EclipseWorkspaceReader], TLog.Level.FULL)
@@ -47,7 +55,7 @@ class DependenciesResolutionTest extends FunSuite {
             dep =>
 
                 println(s"Dep-> $dep ")
-        }
+        }*/
 
         /*    resolver.resolveDependencies("org.eclipse.aether", "aether-impl", "1.0.0.v20140518", "compile").foreach { 
             dep => 

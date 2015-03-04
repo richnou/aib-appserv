@@ -15,115 +15,128 @@ import java.util.concurrent.Semaphore
  */
 class PrebuildLoader(ar: AetherResolver) extends AIBApplication {
 
-    this.artifactsResolver = ar
+  this.artifactsResolver = ar
 
-    var dependencies = List[ArtifactResult]()
+  var dependencies = List[ArtifactResult]()
 
-    var mainArtifact: Option[Artifact] = None
+  var mainArtifact: Option[Artifact] = None
 
-    /**
-     * The main classes to be loaded
-     */
-    var applicationClasses = List[String]()
+  /**
+   * The main classes to be loaded
+   */
+  var applicationClasses = List[String]()
 
-    var initSemaphore = new Semaphore(0)
+  var initSemaphore = new Semaphore(0)
 
-    // Lifecyle
-    //--------------
+  // Lifecyle
+  //--------------
 
-    def doInit = {
+  def doInit = {
 
-        // update Classloader
-        //--------------------
-        println(s"Prebuild loader with main artifact: $mainArtifact")
+    // update Classloader
+    //--------------------
+    println(s"Prebuild loader with main artifact: $mainArtifact")
 
-        initSemaphore.drainPermits()
-        
-        mainArtifact match {
-            case Some(artifact) =>
+    //initSemaphore.drainPermits()
 
-                //-- Get Dependencies
-                this.dependencies = this.artifactsResolver.resolveDependencies(artifact, "compile", true)
+    mainArtifact match {
+      case Some(artifact) =>
 
-                //-- Convert to classpath and set classloader
-                this.classloader = URLClassLoader.newInstance(this.artifactsResolver.dependenciesToClassPathURLS(this.dependencies).toArray)
+        //-- Get Dependencies
+        this.dependencies = this.artifactsResolver.resolveDependencies(artifact, "compile", true)
 
-            case None =>
-        }
+        //-- Convert to classpath and set classloader
+        this.classloader = URLClassLoader.newInstance(this.artifactsResolver.dependenciesToClassPathURLS(this.dependencies).toArray)
 
-        //-- Reset Applications
-        this.applicationClasses.foreach {
-            appClassStr =>
-                try {
-
-                    println(s"Loading app: $appClassStr")
-
-                    // Load
-                    var appClass = this.classloader.loadClass(appClassStr)
-
-                    // check
-                    if (!classOf[AIBApplication].isAssignableFrom(appClass)) {
-                        throw new RuntimeException(s"Cannot load AIB Application wich does not derive from type ${classOf[AIBApplication]}: $appClass")
-                    }
-
-                    // Init 
-                    var app = appClass.newInstance().asInstanceOf[AIBApplication]
-                    app.appInit()
-
-                    // Save
-                    this.childApplications = this.childApplications :+ app
-
-                } catch {
-                    case e: Throwable =>
-                        e.printStackTrace()
-                }
-
-        }
-
-        // Signal
-        initSemaphore.release()
-
+      case None =>
     }
 
-    def doStart = {
+    //-- Reset Applications
+    this.applicationClasses.foreach {
+      appClassStr =>
+        try {
 
-        initSemaphore.acquire()
-        initSemaphore.release()
-        println(s"In do start")
-    
-            //-- Start all
+          println(s"Loading app: $appClassStr")
 
-            this.childApplications.foreach {
-                app =>
+          // Load
+          var appClass = this.classloader.loadClass(appClassStr)
 
-                    println(s"Starting app: ${app.getClass}")
+          // check
+          if (!classOf[AIBApplication].isAssignableFrom(appClass)) {
+            throw new RuntimeException(s"Cannot load AIB Application wich does not derive from type ${classOf[AIBApplication]}: $appClass")
+          }
 
-                    app.appStart(false)
-            }
-        
+          // Init 
+          var app = appClass.newInstance().asInstanceOf[AIBApplication]
+          app.setClassloader(this.classloader)
+       
+          app.appInit()
 
-    }
+          // Save
+          this.childApplications = this.childApplications :+ app
+          this.updated.set(true)
 
-    def doStop = {
-
-        this.childApplications.foreach {
-            app =>
-                try {
-                    app.appStop(false)
-                } catch {
-                    case e: Throwable => e.printStackTrace()
-                }
+        } catch {
+          case e: Throwable =>
+            e.printStackTrace()
         }
 
     }
 
-    // Application Loading
-    //-----------------------
+    // Signal
+    initSemaphore.release()
 
-    def loadApplication(appClass: String) = {
+  }
 
-        println(s"[PBL] Load app: $appClass")
-        this.applicationClasses = this.applicationClasses :+ appClass
+  def doStart = {
+
+    initSemaphore.acquire()
+    initSemaphore.release()
+    println(s"In do start")
+
+    //-- Start all
+
+    this.childApplications.foreach {
+      app =>
+
+        println(s"Starting app: ${app.getClass}")
+
+        app.appStart(false)
     }
+
+  }
+
+  def doStop = {
+
+    this.childApplications.foreach {
+      app =>
+        try {
+          app.appStop(false)
+        } catch {
+          case e: Throwable => e.printStackTrace()
+        }
+    }
+
+  }
+
+  // Application Loading
+  //-----------------------
+
+  def loadApplication(appClass: String) = {
+
+    println(s"[PBL] Load app: $appClass")
+    this.applicationClasses = this.applicationClasses :+ appClass
+
+    /*this.invokeInApp(false) {
+
+      //-- Wait for init
+      initSemaphore.acquire()
+      initSemaphore.release()
+
+      //-- Load application
+
+    }*/
+
+  }
 
 }
