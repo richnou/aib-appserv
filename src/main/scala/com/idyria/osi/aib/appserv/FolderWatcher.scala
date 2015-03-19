@@ -279,13 +279,13 @@ class FolderWatcher(var location: File) extends ThreadLanguage with TLogSource {
             cleanStatus.set(true)
         } else {
             cleanStatus.set(false)
-            println(s"Compiler clean status: " + cleanStatus.getNextBuffer)
             
-            println(s"Compilign failed, but with Classloader:")
+            println(s"Compiler clean status: " + cleanStatus.getNextBuffer)
+           /* println(s"Compilign failed, but with Classloader:")
             println( this.compiler.settings2.bootclasspath)
             this.compiler.bootclasspath.foreach {
               u => println(s"---> "+u.getFile)
-            }
+            }*/
             //this.compiler.
             
         }
