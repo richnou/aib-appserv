@@ -75,7 +75,9 @@ class ApplicationWrapper(var location: File) extends TLogSource with ThreadLangu
                 runtimeCompiler.addSourceFolder(generatedSources)
             case _ =>
         }
-        runtimeCompiler.start
+        
+        // Dont's start per default
+        //runtimeCompiler.start
 
         // Look for applications
         //-------------------
@@ -170,15 +172,18 @@ class ApplicationWrapper(var location: File) extends TLogSource with ThreadLangu
                 newapp.wrapper = this
 
                 //newapp.startScheduler(appClassloader)
+                
+                // FIXME: Init app
                 newapp
-                newapp.appInit()
+                //newapp.appInit()
 
                 // Copy important informations from existing and remove exitings from list
                 //--------------------
                 existingApp match {
                     case Some(eApp) =>
                         
-                        try {eApp.appStop()} catch { case e: Throwable => }
+                      // FIXME Stop existing
+                       // try {eApp.appStop()} catch { case e: Throwable => }
                         
                         newapp.configuration = eApp.configuration
 
@@ -442,7 +447,9 @@ $classContent
                 // Call on stop
                 //----------
                 println(s"Stopping application:")
-                application.appStop()
+                
+                // FIXME Stop
+                //application.appStop()
 
                 // Join thread, kill it after timeout
                 //----------

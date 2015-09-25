@@ -4,17 +4,19 @@
 package com.idyria.osi.aib.appserv
 
 import java.io.File
-import java.net.URLClassLoader
-import java.util.concurrent.Semaphore
-import com.idyria.osi.aib.core.bus.aib
-import com.idyria.osi.ooxoo.core.buffers.structural.xelement
+import java.util.concurrent.Callable
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.Semaphore
 import java.util.concurrent.ThreadFactory
-import java.util.concurrent.Callable
+
 import com.idyria.osi.aib.appserv.dependencies.AetherResolver
-import java.util.concurrent.TimeUnit
+import com.idyria.osi.aib.appserv.lifecycle.LFCDefinition
+import com.idyria.osi.aib.appserv.lifecycle.LFCSupport
+import com.idyria.osi.aib.appserv.model.ApplicationConfig
+import com.idyria.osi.aib.core.bus.aib
 import com.idyria.osi.ooxoo.core.buffers.datatypes.BooleanBuffer
+import com.idyria.osi.ooxoo.core.buffers.datatypes.BooleanBuffer.convertBoolToBooleanBuffer
 
 /**
  *
@@ -28,7 +30,7 @@ import com.idyria.osi.ooxoo.core.buffers.datatypes.BooleanBuffer
  * @author zm4632
  *
  */
-trait AIBApplication {
+trait AIBApplication extends LFCSupport {
 
   /**
    * base location
@@ -53,7 +55,7 @@ trait AIBApplication {
   /**
    * The Thread classloader
    */
-  var classloader: URLClassLoader = null
+  var classloader: ClassLoader = null
 
   /**
    * A Stop signal to healp application nicely close
@@ -79,7 +81,7 @@ trait AIBApplication {
    * An aib bus for the application
    * @warning Only set during application startup, with the correct classloader
    */
-  var _aib: aib = new com.idyria.osi.aib.core.bus.aib()
+  var aibBus: aib = _
 
   // Sync signals for monitoring
   //--------------------
@@ -95,12 +97,36 @@ trait AIBApplication {
    * Starts the App scheduler on a classloader, to make sure the app has its own
    * classloader
    */
-  def setClassloader(cl: URLClassLoader) = {
+  def setClassloader(cl: ClassLoader) = {
 
     // Create Thread
     //-------------------
+    var oldClassloader = this.classloader
     this.classloader = cl
-    
+
+    // Reset executor
+    //-----------
+    this.executor match {
+      case null =>
+      case e => e.shutdownNow()
+    }
+
+    this.executor = Executors.newCachedThreadPool(new ThreadFactory {
+      def newThread(r: Runnable): Thread = {
+        var t = new Thread(r)
+        t.setDaemon(true)
+        t.setContextClassLoader(classloader)
+        t
+      }
+    })
+
+    // Change AIB
+    this.aibBus = aib.transferBus(oldClassloader)
+
+    /*this.invokeInAppAndWait {
+      this.aibBus = aib.switchToClassLoader(this.aibBus)
+    }*/
+
     //aib.
 
     /*this.thread = new Thread()
@@ -109,6 +135,8 @@ trait AIBApplication {
       this.classloader = cl*/
 
   }
+
+ 
 
   /**
    * Runs a closure in the App domain, meaning on an app thread
@@ -150,7 +178,87 @@ trait AIBApplication {
 
   // Lyfecycle
   //----------------
-  var (initClosures, startClosures, stopClosures) = (List[(Unit => Unit)](), List[(Unit => Unit)](), List[(Unit => Unit)]())
+
+  var initialState: Option[String] = None
+
+  def syncInitialState = {
+    this.initialState match {
+      case None =>
+      case Some(state) => AIBApplication.moveToState(this, state)
+    }
+
+  }
+
+  // The State is always common and extern, but the handlers have to be handled in the app context
+  override def registerStateHandler(str: String)(h: => Unit) = {
+    super.registerStateHandler(str) {
+      invokeInAppAndWait {
+        h
+      }
+    }
+  }
+
+  /**
+   * Apply State to self and children
+   */
+  override def applyState(str: String) = {
+    super.applyState(str)
+
+    synchronized {
+      this.childApplications.foreach {
+        app => AIBApplication.moveToState(app, str)
+      }
+    }
+
+  }
+
+  def onInit(cl: => Unit) = {
+    this.registerStateHandler("init") {
+      cl
+    }
+  }
+
+  def onStart(cl: => Unit) = {
+    this.registerStateHandler("start") {
+      cl
+    }
+  }
+  def onStop(cl: => Unit) = {
+    this.registerStateHandler("stop") {
+      cl
+    }
+  }
+
+  def onShutdown(cl: => Unit) = {
+    this.registerStateHandler("shutdown") {
+      cl
+    }
+  }
+
+  // Common Init stuff
+  //-------------------
+  this.currentState = Some("idle")
+  
+  this.setClassloader(new AIBApplicationClassloader())
+
+  super.registerStateHandler("preload") {
+
+    println(s"Preload")
+
+    // Stat common stuff
+    //--------------
+    /*this.executor = Executors.newCachedThreadPool(new ThreadFactory {
+      def newThread(r: Runnable): Thread = {
+        var t = new Thread(r)
+        t.setDaemon(true)
+        t.setContextClassLoader(classloader)
+        t
+      }
+    })*/
+
+  }
+
+  /* var (initClosures, startClosures, stopClosures) = (List[(Unit => Unit)](), List[(Unit => Unit)](), List[(Unit => Unit)]())
 
   //def onInit(cl: => Unit) = initClosures = initClosures :+ { i : Unit =>  cl}
 
@@ -286,13 +394,37 @@ trait AIBApplication {
   def appRestart = {
     appStop()
     appStart()
+  }*/
+
+  /*def doInit
+  def doStart
+  def doStop*/
+
+  // Children Application Management 
+  //------------------------
+  def addChildApplication(app: AIBApplication) = {
+    this.childApplications = this.childApplications :+ app
+
+    println(s"** Added, Syncing with state " + this.currentState)
+    
+    synchronized {
+      // Synchronisze state with parent
+      app.initialState = this.currentState
+      app.syncInitialState
+    }
+    this.updated.set(true)
+    println(s"**** Signaling on: "+this.hashCode())
+    
+    this.@->("child.added", app)
+    //this.@->("child.added")
   }
 
-  def doInit
-  def doStart
-  def doStop
-
 }
-object AIBApplication {
+object AIBApplication extends LFCDefinition {
+  this.defineState("idle")
+  this.defineState("preload")
+  this.defineState("init")
+  this.defineState("start")
+  this.defineState("stop")
 
 }

@@ -69,8 +69,9 @@ class PrebuildLoader(ar: AetherResolver) extends AIBApplication {
           // Init 
           var app = appClass.newInstance().asInstanceOf[AIBApplication]
           app.setClassloader(this.classloader)
-       
-          app.appInit()
+          
+          // FIXME INIT
+          //app.appInit()
 
           // Save
           this.childApplications = this.childApplications :+ app
@@ -100,8 +101,9 @@ class PrebuildLoader(ar: AetherResolver) extends AIBApplication {
       app =>
 
         println(s"Starting app: ${app.getClass}")
-
-        app.appStart(false)
+        
+        // FIXME Start
+        //app.appStart(false)
     }
 
   }
@@ -111,7 +113,9 @@ class PrebuildLoader(ar: AetherResolver) extends AIBApplication {
     this.childApplications.foreach {
       app =>
         try {
-          app.appStop(false)
+          
+          //app.appStop(false)
+          
         } catch {
           case e: Throwable => e.printStackTrace()
         }
